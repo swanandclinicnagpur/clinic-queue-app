@@ -20,18 +20,13 @@
         <!-- Initial/Loading/Sign-In Screen -->
         <div id="authScreen" class="card bg-white p-12 rounded-xl border border-gray-100 text-center space-y-6">
             <h2 class="text-2xl font-semibold text-gray-700" id="authHeader">
-                Loading...
+                Connecting to Clinic System...
             </h2>
-            <p id="authMessage" class="text-gray-500">Please sign in with your email to access the queue system.</p>
-            <button id="signInButton" onclick="signInWithGoogle()" 
-                    class="hidden bg-blue-600 text-white p-3 rounded-lg font-semibold hover:bg-blue-700 transition duration-150 ease-in-out disabled:bg-gray-400">
-                <svg class="inline w-4 h-4 mr-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 18 19"><path fill-rule="evenodd" d="M8.842 18.083A8.347 8.347 0 0 1 8.8 14.052c0-1.01.332-2.076 1.054-2.92.51-.598.92-1.46.92-2.585 0-2.453-2.093-4.444-4.683-4.444-1.22 0-2.316.5-3.085 1.4-1.127 1.358-1.57 3.3-1.57 4.96 0 1.2.33 2.19.825 3.1 0 0 .822 1.353 1.34 2.155.66.995 1.155 1.583 1.155 2.126 0 .524.088.948-.216 1.558.106.115.228.225.36.335A8.8 8.8 0 0 0 8.842 18.083Z" clip-rule="evenodd"/><path fill-rule="evenodd" d="M16.666 11.266c-.66.82-1.358 1.4-1.358 2.05 0 .55.1 1.05.32 1.558.07-.1.14-.2.23-.3a8.8 8.8 0 0 0 1.25-1.92c.5-.9.826-1.9.826-3.1 0-1.66-.442-3.6-1.57-4.96-.77-.9-1.87-1.4-3.09-1.4-2.59 0-4.68 2-4.68 4.445 0 1.125.41 1.987.92 2.585.72.844 1.054 1.91 1.054 2.92 0 1.06-.35 2.08-.94 2.97.23.2.49.38.77.56.24-.12.48-.24.7-.38.7-.46 1.15-.7 1.15-1.17 0-.36.08-.7-.2-1.08-.4-.48-.52-1.05-.52-1.85 0-2.6 2.09-4.7 4.68-4.7 1.22 0 2.32.5 3.09 1.4 1.13 1.358 1.57 3.3 1.57 4.96 0 1.2-.33 2.19-.825 3.1 0 0-1.07 1.83-1.34 2.155-.66.995-1.155 1.583-1.155 2.126 0 .524.088.948-.216 1.558.106.115.228.225.36.335A8.8 8.8 0 0 0 16.666 11.266Z" clip-rule="evenodd"/></svg>
-                Sign in with Google
-            </button>
+            <p id="authMessage" class="text-gray-500">Please wait while we securely connect you.</p>
         </div>
 
         <!-- AUTHENTICATED CONTENT (Hidden until login) -->
-        <div id="authenticatedContent" class="hidden w-full space-y-8">
+        <div id="authenticatedContent" class="hidden w-full max-w-4xl space-y-8">
             <!-- Global Queue Status Display (Visible to all) -->
             <div id="queueStatusDisplay" class="p-3 rounded-xl font-semibold text-center border-b-4">Queue Status: Fetching...</div>
 
@@ -138,13 +133,12 @@
 
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, doc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, serverTimestamp, getDocs, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     setLogLevel('Debug');
 
     // !!! IMPORTANT: UPDATE THIS ARRAY WITH YOUR RECEPTIONIST'S DEDICATED GOOGLE EMAILS !!!
-    // Also, you MUST authorize your domain (www.swanandclinic.com) in your Firebase Console
     const RECEPTIONIST_EMAILS = [
         "receptionist1@example.com", // REPLACE THIS
         "receptionist2@example.com"  // REPLACE THIS
@@ -155,6 +149,7 @@
     // --- GLOBAL FIREBASE CONFIGURATION (MANDATORY) ---
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
     
     let app, db, auth, userId = null;
     let userEmail = null;
@@ -171,7 +166,6 @@
     const authScreen = document.getElementById('authScreen');
     const authHeader = document.getElementById('authHeader');
     const authMessage = document.getElementById('authMessage');
-    const signInButton = document.getElementById('signInButton');
     const authenticatedContent = document.getElementById('authenticatedContent');
     const formCard = document.getElementById('form-card');
     const patientQueueCard = document.getElementById('patient-queue-card');
@@ -241,34 +235,6 @@
 
     // --- AUTHENTICATION & ROLE CHECK ---
 
-    window.signInWithGoogle = async () => {
-        const provider = new GoogleAuthProvider();
-        try {
-            // Sign in using a popup
-            await signInWithPopup(auth, provider);
-        } catch (error) {
-            console.error("Google Sign-In Error:", error);
-            authHeader.textContent = "Sign In Failed";
-            
-            if (error.code === 'auth/unauthorized-domain') {
-                authMessage.innerHTML = `
-                    <p class="text-red-600 font-semibold mb-2">CRITICAL ERROR: Unauthorized Domain.</p>
-                    <p>You must add the domain where this application is hosted (e.g., <code>www.swanandclinic.com</code>) to your Firebase project's **Authorized Domains** list.</p>
-                    <ul class="list-disc list-inside mt-2 text-left mx-auto max-w-sm">
-                        <li>Go to your **Firebase Console**.</li>
-                        <li>Navigate to **Authentication** -> **Settings**.</li>
-                        <li>Under **Authorized Domains**, click 'Add domain'.</li>
-                        <li>Add your website's domain, e.g., <code>swanandclinic.com</code>.</li>
-                    </ul>
-                `;
-            } else if (error.message.includes('popup')) {
-                authMessage.textContent = "Sign in process interrupted (popup closed or blocked). Please ensure pop-ups are allowed and try again.";
-            } else {
-                authMessage.textContent = `Authentication Error: ${error.message}`;
-            }
-        }
-    }
-
     const checkUserRole = (user) => {
         isAuthenticated = !!user;
         if (user) {
@@ -282,7 +248,6 @@
             renderAuthenticatedUI();
             
             // Start data listeners
-            // Pass true to setupQueueStatusListener to initialize controlDate for receptionist if needed
             setupQueueStatusListener(true); 
             updateQueueListener(); 
 
@@ -318,25 +283,42 @@
     const renderUnauthenticatedUI = () => {
         authScreen.classList.remove('hidden');
         authenticatedContent.classList.add('hidden');
-        authHeader.textContent = "Welcome to Swanand Clinic Queue";
-        authMessage.textContent = "Please sign in with your registered email to join the queue or manage patients.";
-        signInButton.classList.remove('hidden');
+        authHeader.textContent = "Connection Failed";
+        authMessage.textContent = "Could not connect to the system. Please check console errors.";
     }
 
     // --- FIREBASE INITIALIZATION & AUTH ---
 
-    function initializeFirebase() {
+    async function initializeFirebase() {
         if (!firebaseConfig) {
             console.error("Firebase config is missing.");
             authHeader.textContent = "System Error";
             authMessage.textContent = "Firebase configuration failed to load.";
             return;
         }
+        
         app = initializeApp(firebaseConfig);
         db = getFirestore(app);
         auth = getAuth(app);
         
-        // Main entry point after Firebase is initialized
+        try {
+             if (initialAuthToken) {
+                // Use custom token if provided (the recommended method in this environment)
+                await signInWithCustomToken(auth, initialAuthToken);
+                console.log("Signed in with custom token.");
+            } else {
+                // Fallback to anonymous sign-in if token is missing
+                await signInAnonymously(auth);
+                console.log("Signed in anonymously.");
+            }
+        } catch(error) {
+            console.error("Initial sign-in failed:", error);
+            // Update UI to show connection failure if sign-in fails
+            authHeader.textContent = "Connection Error";
+            authMessage.textContent = `Authentication failed: ${error.message}. Please check your Firebase config.`;
+        }
+        
+        // Listener to handle successful login or changes
         onAuthStateChanged(auth, checkUserRole);
     }
     
